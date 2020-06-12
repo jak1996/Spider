@@ -9,6 +9,7 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 import requests
 import os
 
+
 CURRENT_LANGUAGE = 'Italiano'
 
 def init_driver():
@@ -61,7 +62,8 @@ def getProductsLinks(driver, url):
             try:
                 linkToTheProduct = element.find_element_by_tag_name('a').get_attribute('href')
                 queryParameters = element.find_element_by_tag_name('a').get_attribute("data-extraquery")
-                linkToTheProduct = linkToTheProduct + "?" + queryParameters
+                if queryParameters is not None:
+                    linkToTheProduct = linkToTheProduct + "?" + queryParameters
                 linksList.append(linkToTheProduct)
             except NoSuchElementException:
                 print("marketing banner")
@@ -138,12 +140,17 @@ def getIdsPairedProducts(driver, listOfLinks):
 
 
 def parseId(id):
-    color = id.split(" - ")[0]
-    code = id.split(" - ")[1]
-    id = color + "_" + code
-    id1 = id.split("/")[0]
-    id2 = id.split("/")[1]
-    id = id1 + "-" + id2
+    if len(id.split(" - ")) > 1:
+        color = id.split(" - ")[0]
+        code = id.split(" - ")[1]
+        id = color + "_" + code
+        id1 = id.split("/")[0]
+        id2 = id.split("/")[1]
+        id = id1 + "-" + id2
+    else:
+        id1 = id.split("/")[0]
+        id2 = id.split("/")[1]
+        id = id1 + "-" + id2
     return id
 
 
@@ -166,6 +173,23 @@ def downloadPhotos(imagesLinksList, subpath, id):
                 r.raw.decode_content = True
                 shutil.copyfileobj(r.raw, f)
         index += 1
+
+
+def getComposition(driver):
+    try:
+        try:
+            compositionButton = driver.find_element_by_xpath(
+                '//*[@id="product"]/div[1]/div/div[2]/div[4]/ul/li[1]/a')
+        except NoSuchElementException:
+            # different name of the button in the html
+            compositionButton = driver.find_element_by_xpath('//*[@id="product"]/div[1]/div/div[2]/div[3]/ul/li[1]/a')
+        driver.execute_script("arguments[0].click();", compositionButton)
+        wait(2)
+        composition = driver.find_element_by_class_name('zonasPrenda').text
+    except NoSuchElementException:
+        # no compisition available
+        composition = np.NaN
+    return composition
 
 
 def parsePath(url):
@@ -200,20 +224,10 @@ def scrapeData(productsLinks, path):
             DescriptionElement = driver.find_element_by_class_name('description').text
             description = DescriptionElement.split('\n')[0]
 
-            # get composition
-            try:
-                compositionButton = driver.find_element_by_xpath(
-                    '//*[@id="product"]/div[1]/div/div[2]/div[4]/ul/li[1]/a')
-                driver.execute_script("arguments[0].click();", compositionButton)
-                wait(2)
-                composition = driver.find_element_by_class_name('zonasPrenda').text
-            except NoSuchElementException:
-                print("no composition available")
-                composition = np.NaN
-            print(composition)
+            composition = getComposition(driver)
 
             imagesLinksList = getLinksToImages(driver)
-            # download the photos
+
             downloadPhotos(imagesLinksList, path, id)
 
             pairingProductsLinksList = getPairingProductsLinks(driver)
@@ -245,10 +259,11 @@ if __name__ == "__main__":
         subcategoriesLinks = getSubcategoriesLinks(driver, url)
         dataFrameCategory = createDataFrame()
         for link in subcategoriesLinks:
-            wait(8)
-            productsLinks = getProductsLinks(driver, link)
-            dataFrameSubCategory = scrapeData(productsLinks, path)
-            dataFrameCategory = dataFrameCategory.append(dataFrameSubCategory)
+            if link is not subcategoriesLinks[-1]:
+                wait(8)
+                productsLinks = getProductsLinks(driver, link)
+                dataFrameSubCategory = scrapeData(productsLinks, path)
+                dataFrameCategory = dataFrameCategory.append(dataFrameSubCategory)
         dataFrameCategory.to_csv(index=False, path_or_buf='Data\\' + fileName, na_rep='Null')
     file.close()
     driver.close()

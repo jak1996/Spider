@@ -10,4 +10,7 @@ for file in files:
     df_partial = pd.read_csv('Data\\'+ file)
     df = df.append(df_partial)
 
-df.to_csv('Dataset.csv', index=False)
+# drop rows with same product and same pairing
+df.drop_duplicates(keep='first', inplace=True)
+
+df.to_csv('DatasetIT.csv', index=False)
