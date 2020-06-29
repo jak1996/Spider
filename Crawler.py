@@ -5,12 +5,13 @@ import numpy as np
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 import requests
 import os
+from requests.exceptions import ConnectionError
 
 
-CURRENT_LANGUAGE = 'Italiano'
+CURRENT_LANGUAGE = 'English'
 
 def init_driver():
     driver = webdriver.Chrome()
@@ -56,7 +57,10 @@ def getProductsLinks(driver, url):
     driver.get(url)
     try:
         linksList = []
-        productListElement = driver.find_element_by_xpath("//ul[@class='product-list _productList']")
+        try:
+            productListElement = driver.find_element_by_xpath("//ul[@class='product-list _productList']")
+        except NoSuchElementException:
+            productListElement = driver.find_element_by_xpath("//ul[@class='product-list _productList main-components']")
         productList = productListElement.find_elements_by_tag_name('li')
         for element in productList:
             try:
@@ -67,6 +71,8 @@ def getProductsLinks(driver, url):
                 linksList.append(linkToTheProduct)
             except NoSuchElementException:
                 print("marketing banner")
+            except StaleElementReferenceException:
+                print("unvalid product")
         return linksList
     except TimeoutException:
         print("Timeoutexception!")
@@ -162,7 +168,7 @@ def downloadPhotos(imagesLinksList, subpath, id):
     """
     index = 0
     for imageLink in imagesLinksList:
-        wait(1)
+        wait(2)
         r = requests.get(imageLink, stream=True)
         if r.status_code == 200:
             fileNamePath = 'Data\images\\' + subpath + "\\"
@@ -203,10 +209,11 @@ def parsePath(url):
 def scrapeData(productsLinks, path):
     """
     :param productsLinks: list of links to the pages of all the products of the category
-    :param df: dataframe to store data in a structured way
-    :param url: url of the subcategory to scrape, used to extract the path
+    :param path
     :return:
     """
+    counter = 0
+    print(str(len(productsLinks)))
     df = createDataFrame()
     for link in productsLinks:
         wait(7)
@@ -242,10 +249,17 @@ def scrapeData(productsLinks, path):
                             'ID pairing 1': pairedProductsIds[0], 'ID pairing 2': pairedProductsIds[1],
                             'ID pairing 3': pairedProductsIds[2], 'ID pairing 4': pairedProductsIds[3]},
                            ignore_index=True)
+            counter += 1
         except TimeoutException:
             print("Timeoutexception!")
         except NoSuchElementException:
             print("unvalid product page!")
+        except ConnectionError:
+            print("connection aborted")
+            f = open("errors.txt", "a")
+            f.write(path + "=> scraped " + str(counter) + "/" + str(len(productsLinks)) + "\n")
+            f.close()
+            return df
     return df
 
 
@@ -255,15 +269,23 @@ if __name__ == "__main__":
     for url in file:
         wait(3)
         path = parsePath(url)
+        # path = 'pantalones shorts'
         fileName = path.split("\\")[0] + "-" + path.split("\\")[1] + ".csv"
-        subcategoriesLinks = getSubcategoriesLinks(driver, url)
+        # fileName = 'mujer-pantalones shorts.csv'
         dataFrameCategory = createDataFrame()
-        for link in subcategoriesLinks:
-            if link is not subcategoriesLinks[-1]:
+        subcategoriesLinks = getSubcategoriesLinks(driver, url)
+        if len(subcategoriesLinks) > 0:
+            for link in subcategoriesLinks:
+                # if link is not subcategoriesLinks[-1]:
                 wait(8)
                 productsLinks = getProductsLinks(driver, link)
                 dataFrameSubCategory = scrapeData(productsLinks, path)
                 dataFrameCategory = dataFrameCategory.append(dataFrameSubCategory)
-        dataFrameCategory.to_csv(index=False, path_or_buf='Data\\' + fileName, na_rep='Null')
+            dataFrameCategory.to_csv(index=False, path_or_buf='Data\\' + fileName, na_rep='Null')
+        else:
+            wait(8)
+            productsLinks = getProductsLinks(driver, url)
+            dataFrameCategory = scrapeData(productsLinks, path)
+            dataFrameCategory.to_csv(index=False, path_or_buf='Data\\' + fileName, na_rep='Null')
     file.close()
     driver.close()
